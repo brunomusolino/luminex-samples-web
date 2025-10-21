@@ -71,3 +71,6 @@ export default defineConfig([
   },
 ])
 ```
+
+
+Deploy: SWA ativo. Variáveis via Application settings.
