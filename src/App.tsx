@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { apiGet, apiPost } from "./api";
 
 type Reason = { id: number; name: string };
