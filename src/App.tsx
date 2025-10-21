@@ -18,15 +18,36 @@ export default function App() {
     setStock(data.items);
   }
   async function testOut() {
-    if (!stock[0]) return setMsg("Carregue o estoque primeiro");
-    const s = stock[0];
-    const res = await apiPost<{ id: number }>("/api/movements", {
-      direction: "OUT", product_id: s.product_id, location_id: s.location_id, qty: 1,
-      reason_id: reasons[0]?.id ?? 1, customer: "Cliente Front", note: "OUT via UI"
-    });
-    setMsg(`OUT ok (id=${res.id})`);
-    await loadStock();
+    try {
+      if (!stock[0]) {
+        setMsg("Carregue o estoque primeiro");
+        return;
+      }
+      const s = stock[0];
+      const res = await apiPost<{ id: number }>("/api/movements", {
+        direction: "OUT",
+        product_id: s.product_id,
+        location_id: s.location_id,
+        qty: 1,
+        reason_id: reasons[0]?.id ?? 1,
+        customer: "Cliente Front",
+        note: "OUT via UI"
+      });
+      setMsg(`OUT ok (id=${res.id})`);
+      await loadStock();
+    } catch (e: unknown) {
+      let message = "Falha no OUT";
+      if (e instanceof Error) {
+        message = `Falha no OUT: ${e.message}`;
+      } else if (typeof e === "string") {
+        message = `Falha no OUT: ${e}`;
+      } else {
+        message = `Falha no OUT: ${JSON.stringify(e)}`;
+      }
+      setMsg(message);
+    }
   }
+
 
   return (
     <div style={{ fontFamily: "system-ui, Arial", padding: 24, maxWidth: 900, margin: "0 auto" }}>
