@@ -1,4 +1,5 @@
-import { PublicClientApplication, InteractionRequiredAuthError, AccountInfo } from "@azure/msal-browser";
+import { PublicClientApplication, InteractionRequiredAuthError } from "@azure/msal-browser";
+import type { AccountInfo } from "@azure/msal-browser";
 import { authority, clientIdSpa, apiScope } from "./authConfig";
 
 export const pca = new PublicClientApplication({
