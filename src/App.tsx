@@ -1,77 +1,38 @@
-import { useState } from "react";
-import { apiGet, apiPost } from "./api";
+import { useEffect, useState } from "react";
+import StockPage from "./pages/StockPage";
+import { loginAndAcquireToken } from "./lib/msal";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 
-type Reason = { id: number; name: string };
-type StockItem = { product_id: number; location_id: number; qty: number; part_number: string; manufacturer: string; location_label: string };
+const qc = new QueryClient();
 
 export default function App() {
-  const [reasons, setReasons] = useState<Reason[]>([]);
-  const [stock, setStock] = useState<StockItem[]>([]);
-  const [msg, setMsg] = useState<string>("");
+  const [ready, setReady] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  async function loadReasons() {
-    const data = await apiGet<{ items: Reason[] }>("/api/movement-reasons");
-    setReasons(data.items);
-  }
-  async function loadStock() {
-    const data = await apiGet<{ items: StockItem[] }>("/api/stock?limit=10");
-    setStock(data.items);
-  }
-  async function testOut() {
-    try {
-      if (!stock[0]) {
-        setMsg("Carregue o estoque primeiro");
-        return;
-      }
-      const s = stock[0];
-      const res = await apiPost<{ id: number }>("/api/movements", {
-        direction: "OUT",
-        product_id: s.product_id,
-        location_id: s.location_id,
-        qty: 1,
-        reason_id: reasons[0]?.id ?? 1,
-        customer: "Cliente Front",
-        note: "OUT via UI"
-      });
-      setMsg(`OUT ok (id=${res.id})`);
-      await loadStock();
-    } catch (e: unknown) {
-      let message = "Falha no OUT";
-      if (e instanceof Error) {
-        message = `Falha no OUT: ${e.message}`;
-      } else if (typeof e === "string") {
-        message = `Falha no OUT: ${e}`;
-      } else {
-        message = `Falha no OUT: ${JSON.stringify(e)}`;
-      }
-      setMsg(message);
-    }
-  }
-
+  useEffect(() => { (async () => { await loginAndAcquireToken(); setReady(true); })(); }, []);
+  if (!ready) return <div className="p-6 text-sm text-gray-600">Autenticando…</div>;
 
   return (
-    <div style={{ fontFamily: "system-ui, Arial", padding: 24, maxWidth: 900, margin: "0 auto" }}>
-      <h1>Samples — Front</h1>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <button onClick={loadReasons}>Carregar motivos</button>
-        <button onClick={loadStock}>Carregar estoque (10)</button>
-        <button onClick={testOut}>Teste OUT (1)</button>
+    <QueryClientProvider client={qc}>
+      <div className="min-h-screen">
+        <header className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b">
+          <div className="max-w-6xl mx-auto px-3 h-12 flex items-center gap-3">
+            <button className="border rounded px-3 py-1" onClick={() => setMenuOpen((v) => !v)}>☰</button>
+            <div className="font-semibold">Luminex — Amostras</div>
+          </div>
+          {menuOpen && (
+            <nav className="border-t">
+              <div className="max-w-6xl mx-auto px-3 py-2 text-sm">
+                <a className="block py-1" href="#" onClick={(e) => { e.preventDefault(); setMenuOpen(false); }}>Estoque de Amostras</a>
+              </div>
+            </nav>
+          )}
+        </header>
+
+        <StockPage />
       </div>
-      {msg && <p style={{ marginTop: 12, color: "#0a7" }}>{msg}</p>}
-      <h2 style={{ marginTop: 24 }}>Motivos</h2>
-      <ul>{reasons.map(r => <li key={r.id}>{r.id} — {r.name}</li>)}</ul>
-      <h2 style={{ marginTop: 24 }}>Estoque</h2>
-      <table cellPadding={6} style={{ borderCollapse: "collapse" }}>
-        <thead><tr><th>Prod</th><th>PN</th><th>Fabricante</th><th>Endereço</th><th>Qtd</th></tr></thead>
-        <tbody>
-          {stock.map(s => (
-            <tr key={`${s.product_id}-${s.location_id}`}>
-              <td>{s.product_id}</td><td>{s.part_number}</td><td>{s.manufacturer}</td>
-              <td>{s.location_label}</td><td style={{ textAlign: "right" }}>{s.qty}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+      <ReactQueryDevtools initialIsOpen={false} />
+    </QueryClientProvider>
   );
 }
