@@ -1,6 +1,6 @@
+// src/components/modals/OutModal.tsx
 import { useEffect, useMemo, useState } from "react";
-import type { MovementReason, StockItem } from "../../lib/api";
-import { postOut } from "../../lib/api";
+import { postOut, type MovementReason, type StockItem } from "../../lib/api";
 
 type Props = {
   open: boolean;
@@ -11,75 +11,76 @@ type Props = {
 };
 
 export default function OutModal({ open, product, reasons, onClose, onDone }: Props) {
-  // mantemos uma string para permitir apagar e digitar livremente
-  const [qtyStr, setQtyStr] = useState<string>("1");
-  const [reasonId, setReasonId] = useState<number | undefined>(undefined);
+  // qty como string para permitir apagar e digitar livremente
+  const [qtyInput, setQtyInput] = useState<string>("1");
+  const [reasonId, setReasonId] = useState<number | "">("");
   const [customer, setCustomer] = useState<string>("");
   const [note, setNote] = useState<string>("");
 
   const available = useMemo(() => (Number.isFinite(product.qty) ? product.qty : 0), [product.qty]);
 
-  // converte qtyStr → número válido (ou undefined se vazio/indefinido)
+  // Converte a string para número inteiro válido (clamp 1..available quando fizer sentido)
   const qtyNum = useMemo(() => {
-    if (qtyStr.trim() === "") return undefined;
-    const n = Number(qtyStr);
-    return Number.isFinite(n) ? n : undefined;
-  }, [qtyStr]);
+    if (qtyInput.trim() === "") return 0;
+    const n = Math.floor(Number(qtyInput));
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return available > 0 ? Math.min(n, available) : 0;
+  }, [qtyInput, available]);
 
+  // Reseta ao abrir
   useEffect(() => {
     if (!open) return;
-    setQtyStr("1");
-    setReasonId(undefined);
+    setQtyInput("1");
+    setReasonId("");
     setCustomer("");
     setNote("");
   }, [open, product]);
 
   if (!open) return null;
 
-  const canSubmit =
-    typeof qtyNum === "number" &&
-    qtyNum >= 1 &&
-    qtyNum <= available &&
-    typeof reasonId === "number" &&
-    reasonId > 0;
+  const canSubmit = qtyNum >= 1 && reasonId !== "" && available > 0 && product.location_id != null;
 
   const onSubmit = async () => {
     if (!canSubmit) return;
     await postOut({
       product_id: product.product_id,
-      location_id: product.location_id ?? 0,
-      qty: qtyNum!,
-      reason_id: reasonId!,
-      customer,
+      location_id: product.location_id as number, // para OUT, deve existir
+      qty: qtyNum,
+      reason_id: Number(reasonId),
+      customer: customer || "",
       note: note || undefined,
     });
     onDone();
+    onClose();
   };
 
-  // aceita apenas dígitos; permite vazio durante a digitação
+  // Aceita apenas dígitos; permite vazio durante digitação
   const handleQtyChange = (val: string) => {
-    if (!/^\d*$/.test(val)) return; // ignora caracteres não numéricos
+    if (!/^\d*$/.test(val)) return; // ignora não numéricos
     if (val === "") {
-      setQtyStr(val);
+      setQtyInput(val);
       return;
     }
-    let s = val.replace(/^0+(\d)/, "$1"); // remove zero à esquerda (ex.: 01 → 1)
+    // remove zeros à esquerda e clampa
+    let s = val.replace(/^0+(\d)/, "$1");
     const n = Number(s);
-    if (available > 0 && n > available) {
-      s = String(available); // clamp imediato no máximo permitido
-    }
-    setQtyStr(s);
+    if (available > 0 && n > available) s = String(available);
+    setQtyInput(s);
   };
 
-  // ao sair do campo, normaliza para pelo menos 1 (se houver estoque)
+  // Normaliza ao sair do campo (1 se houver estoque, 0 se não)
   const handleQtyBlur = () => {
-    if (qtyStr.trim() === "") {
-      setQtyStr(available > 0 ? "1" : "0");
+    if (qtyInput.trim() === "") {
+      setQtyInput(available > 0 ? "1" : "0");
       return;
     }
-    const n = Number(qtyStr);
+    const n = Number(qtyInput);
     if (!Number.isFinite(n) || n < 1) {
-      setQtyStr(available > 0 ? "1" : "0");
+      setQtyInput(available > 0 ? "1" : "0");
+    } else if (available > 0 && n > available) {
+      setQtyInput(String(available));
+    } else {
+      setQtyInput(String(Math.floor(n)));
     }
   };
 
@@ -89,11 +90,11 @@ export default function OutModal({ open, product, reasons, onClose, onDone }: Pr
         <div className="border-b px-4 py-3">
           <div className="text-lg font-semibold">Saída de Estoque</div>
           <div className="text-sm text-gray-600">
-            {product.code} — {product.description}
+            {product.part_number ?? product.code} — {product.description}
           </div>
         </div>
 
-        <div className="px-4 py-3 space-y-3">
+        <div className="space-y-3 px-4 py-3">
           <div className="text-sm text-gray-700">
             Endereço: <span className="font-medium">{product.location_label}</span>
           </div>
@@ -104,9 +105,11 @@ export default function OutModal({ open, product, reasons, onClose, onDone }: Pr
           <label className="block">
             <span className="text-sm text-gray-700">Quantidade</span>
             <input
-              type="text" // ← texto para permitir apagar/digitar livremente
+              type="number"            // mantém setinhas
               inputMode="numeric"
-              value={qtyStr}
+              min={available > 0 ? 1 : 0}
+              step={1}
+              value={qtyInput}
               onChange={(e) => handleQtyChange(e.target.value)}
               onBlur={handleQtyBlur}
               disabled={available <= 0}
@@ -114,11 +117,8 @@ export default function OutModal({ open, product, reasons, onClose, onDone }: Pr
               className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-200 disabled:bg-gray-100"
             />
             {available === 0 && (
-              <div className="mt-1 text-xs text-red-600">Sem estoque disponível para saída.</div>
-            )}
-            {typeof qtyNum === "number" && qtyNum > available && (
               <div className="mt-1 text-xs text-red-600">
-                A quantidade não pode exceder o estoque disponível.
+                Sem estoque disponível para saída.
               </div>
             )}
           </label>
@@ -126,11 +126,11 @@ export default function OutModal({ open, product, reasons, onClose, onDone }: Pr
           <label className="block">
             <span className="text-sm text-gray-700">Motivo</span>
             <select
-              value={reasonId ?? ""}
-              onChange={(e) => setReasonId(e.target.value ? Number(e.target.value) : undefined)}
+              value={reasonId}
+              onChange={(e) => setReasonId(e.target.value ? Number(e.target.value) : "")}
               className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-200"
             >
-              <option value="">Selecione...</option>
+              <option value="">Selecione…</option>
               {reasons.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
@@ -156,6 +156,7 @@ export default function OutModal({ open, product, reasons, onClose, onDone }: Pr
               onChange={(e) => setNote(e.target.value)}
               className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-200"
               rows={3}
+              placeholder="Observações adicionais"
             />
           </label>
         </div>
@@ -168,8 +169,8 @@ export default function OutModal({ open, product, reasons, onClose, onDone }: Pr
             Cancelar
           </button>
           <button
-            disabled={!canSubmit}
             onClick={onSubmit}
+            disabled={!canSubmit}
             className={`rounded-lg px-3 py-2 text-white ${
               canSubmit ? "bg-indigo-600 hover:bg-indigo-700" : "bg-gray-300 cursor-not-allowed"
             }`}
