@@ -32,6 +32,25 @@ jobs:
         run: npm run build
         # Vite outputs to ./dist by default
 
+      - name: Print Vite env presence (masked)
+        run: |
+          node -e "console.log('CLIENT_ID length=', (process.env.VITE_CLIENT_ID_SPA||'').length)"
+          node -e "console.log('AUTHORITY ok=', !!process.env.VITE_AUTHORITY)"
+          node -e "console.log('SCOPE ok=', !!process.env.VITE_API_SCOPE)"
+
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA }}
+          VITE_AUTHORITY: ${{ secrets.VITE_AUTHORITY }}
+          VITE_API_SCOPE: ${{ secrets.VITE_API_SCOPE }}
+
+      - name: Sanity check bundle
+        run: |
+          grep -R "api://" dist || true
+          grep -R "${{ secrets.VITE_CLIENT_ID_SPA }}" dist || true  # (vai sair mascarado, mas serve p/ ver se há algo)
+
+
       # Upload prebuilt artifact to SWA (skip Oryx build)
       - name: Deploy to Azure Static Web Apps
         id: builddeploy
