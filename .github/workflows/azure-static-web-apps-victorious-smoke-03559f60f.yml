@@ -47,6 +47,10 @@ jobs:
           api_location: ""
           output_location: ""
           skip_app_build: true
+        env:
+          VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA }}
+          VITE_AUTHORITY: ${{ secrets.VITE_AUTHORITY }}
+          VITE_API_SCOPE: ${{ secrets.VITE_API_SCOPE }}
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
