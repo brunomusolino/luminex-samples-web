@@ -1,70 +1,106 @@
-import { useEffect, useState } from "react";
-import type { Reason } from "../../lib/api";
-import { fetchMovementReasons, postOut } from "../../lib/api";
+import { useMemo, useState } from "react";
+import type { MovementReason, StockItem } from "../../lib/api";
+import { postOut } from "../../lib/api";
 
-export default function OutModal({
-  open,
-  onClose,
-  product_id,
-  location_id,
-  onSuccess,
-}: {
+type Props = {
   open: boolean;
+  product: StockItem;
+  reasons: MovementReason[];
   onClose: () => void;
-  product_id: number;
-  location_id: number;
-  onSuccess: (newId: number) => void;
-}) {
-  const [reasons, setReasons] = useState<Reason[]>([]);
-  const [qty, setQty] = useState(1);
-  const [reason_id, setReasonId] = useState<number>(1);
+  onDone: () => void;
+};
+
+export default function OutModal({ open, product, reasons, onClose, onDone }: Props) {
+  const maxQty = useMemo(() => Math.max(0, product.qty ?? 0), [product.qty]);
+  const [qty, setQty] = useState<number>(maxQty > 0 ? 1 : 0);
+  const [reasonId, setReasonId] = useState<number>(reasons[0]?.id ?? 1);
   const [customer, setCustomer] = useState("");
   const [note, setNote] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => { fetchMovementReasons().then(setReasons).catch(() => setReasons([])); }, []);
-
-  const submit = async () => {
-    try {
-      setLoading(true); setErr(null);
-      const r = await postOut({ product_id, location_id, qty, reason_id, customer, note });
-      onSuccess(r.id); onClose();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setErr(msg);
-    }
-    finally { setLoading(false); }
-  };
+  const [submitting, setSubmitting] = useState(false);
+  const disabled = submitting || qty <= 0 || qty > maxQty;
 
   if (!open) return null;
+
+  const submit = async () => {
+    if (disabled) return;
+    try {
+      setSubmitting(true);
+      await postOut({
+        product_id: product.product_id,
+        location_id: product.location_id ?? 0,
+        qty: Math.min(qty, maxQty),
+        reason_id: reasonId,
+        customer,
+        note: note || undefined,
+      });
+      onDone();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-4 space-y-3">
-        <h3 className="text-lg font-semibold">Retirar amostras</h3>
-        {err && <div className="text-red-600 text-sm">{err}</div>}
-        <div className="grid gap-2">
-          <label className="text-sm">Quantidade</label>
-          <input type="number" min={1} className="border rounded px-3 py-2" value={qty} onChange={(e)=>setQty(parseInt(e.target.value||"1",10))} />
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/30">
+      <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white p-4 shadow-lg">
+        <div className="text-lg font-semibold">Saída (OUT)</div>
+        <div className="mt-1 text-sm text-gray-600">{product.description}</div>
+        <div className="mt-1 text-xs text-gray-500">Endereço: {product.location_label}</div>
+
+        <div className="mt-4 grid gap-3">
+          <label className="grid gap-1 text-sm">
+            Quantidade (máx. {maxQty})
+            <input
+              type="number"
+              min={0}
+              max={maxQty}
+              value={qty}
+              onChange={(e) => setQty(Math.max(0, Math.min(Number(e.target.value || 0), maxQty)))}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm">
+            Motivo
+            <select
+              value={reasonId}
+              onChange={(e) => setReasonId(Number(e.target.value))}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            >
+              {reasons.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="grid gap-1 text-sm">
+            Cliente (opcional)
+            <input
+              value={customer}
+              onChange={(e) => setCustomer(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
+
+          <label className="grid gap-1 text-sm">
+            Observação (opcional)
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
         </div>
-        <div className="grid gap-2">
-          <label className="text-sm">Motivo</label>
-          <select className="border rounded px-3 py-2" value={reason_id} onChange={(e)=>setReasonId(parseInt(e.target.value,10))}>
-            {reasons.map(r=> <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-        </div>
-        <div className="grid gap-2">
-          <label className="text-sm">Cliente</label>
-          <input className="border rounded px-3 py-2" value={customer} onChange={(e)=>setCustomer(e.target.value)} />
-        </div>
-        <div className="grid gap-2">
-          <label className="text-sm">Observação (opcional)</label>
-          <textarea className="border rounded px-3 py-2" value={note} onChange={(e)=>setNote(e.target.value)} />
-        </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <button className="px-3 py-2" onClick={onClose}>Cancelar</button>
-          <button disabled={loading || !customer || !qty || qty<=0} className="bg-black text-white rounded px-4 py-2" onClick={submit}>
-            {loading ? "Enviando..." : "Confirmar"}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg border px-3 py-2 hover:bg-gray-50">Cancelar</button>
+          <button
+            onClick={submit}
+            disabled={disabled}
+            className={`rounded-lg px-3 py-2 text-white ${disabled ? "bg-gray-400" : "bg-indigo-600 hover:bg-indigo-700"}`}
+          >
+            Confirmar saída
           </button>
         </div>
       </div>

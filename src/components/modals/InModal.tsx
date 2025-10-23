@@ -1,106 +1,155 @@
-import { useEffect, useState } from "react";
-import type { Reason } from "../../lib/api";
-import { fetchMovementReasons, postIn, searchLocations, createLocation } from "../../lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { postIn, searchLocations, type Reason, type StockItem } from "../../lib/api";
 
-export default function InModal({
-  open,
-  onClose,
-  product_id,
-  currentQty,
-  currentLocationId,
-  onSuccess,
-}: {
+type Props = {
   open: boolean;
+  product: StockItem | null;
+  reasons: Reason[];
   onClose: () => void;
-  product_id: number;
-  currentQty: number;
-  currentLocationId: number | null;
-  onSuccess: (newId: number, newLocationLabel?: string | null) => void;
-}) {
-  const [reasons, setReasons] = useState<Reason[]>([]);
-  const [qty, setQty] = useState(1);
-  const [reason_id, setReasonId] = useState<number>(3); // "Novos Recebimentos" no seu seed
-  const [customer, setCustomer] = useState("Fornecedor");
-  const [note, setNote] = useState("");
+  onDone: () => void;
+};
 
-  const [locQuery, setLocQuery] = useState("");
-  const [locOpts, setLocOpts] = useState<{ id: number; location_label: string }[]>([]);
-  const [locationLabel, setLocationLabel] = useState<string>("");
+type Loc = { id: number; label: string };
 
-  useEffect(() => { fetchMovementReasons().then(setReasons).catch(() => setReasons([])); }, []);
+export default function InModal({ open, product, reasons, onClose, onDone }: Props) {
+  const [qty, setQty] = useState<number>(1);
+  const [reasonId, setReasonId] = useState<number | "">("");
+  const [customer, setCustomer] = useState<string>("");
+  const [note, setNote] = useState<string>("");
+  const [locations, setLocations] = useState<Loc[]>([]);
+  const [toLocationId, setToLocationId] = useState<number | "">("");
+
+  const needsLocation = product ? product.qty === 0 : false;
+  const currentLabel = product?.location_label ?? "—";
+
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      if (!locQuery) { setLocOpts([]); return; }
-      const rows = await searchLocations(locQuery);
-      if (alive) setLocOpts(rows);
-    })();
-    return () => { alive = false; };
-  }, [locQuery]);
-
-  const submit = async () => {
-    try {
-      let location_id = currentLocationId ?? undefined;
-      let locLabel: string | undefined;
-
-      if (!currentLocationId || currentQty <= 0) {
-        // precisa definir endereço quando saldo zero
-        const label = (locationLabel || locQuery).trim();
-        if (!label) throw new Error("Informe o endereço (ex.: B-01.3)");
-        // tenta criar/obter id
-        const created = await createLocation(label);
-        location_id = created.id;
-        locLabel = created.location_label;
-      }
-
-      const r = await postIn({ product_id, location_id: location_id!, qty, reason_id, customer, note });
-      onSuccess(r.id, locLabel ?? null);
-      onClose();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      alert(msg);
+    let mounted = true;
+    if (needsLocation) {
+      searchLocations("")
+        .then((ls) => { if (mounted) setLocations(ls); })
+        .catch(() => { if (mounted) setLocations([]); });
+    } else {
+      setLocations([]);
     }
-  };
+    return () => { mounted = false; };
+  }, [needsLocation]);
 
-  if (!open) return null;
-  const needsAddress = !currentLocationId || currentQty <= 0;
+  const canSubmit = useMemo(() => {
+    if (!product) return false;
+    const baseOk = qty > 0 && reasonId !== "";
+    return needsLocation ? baseOk && toLocationId !== "" : baseOk;
+  }, [product, qty, reasonId, needsLocation, toLocationId]);
+
+  async function submit() {
+    if (!product || !canSubmit) return;
+
+    await postIn({
+      product_id: product.product_id,
+      location_id: needsLocation ? Number(toLocationId) : (product.location_id as number),
+      qty,
+      reason_id: Number(reasonId),
+      customer: customer || "",
+      note: note || undefined,
+    });
+
+    onDone();
+    onClose();
+  }
+
+  if (!open || !product) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-4 space-y-3">
-        <h3 className="text-lg font-semibold">Receber amostras</h3>
-        <div className="grid gap-2">
-          <label className="text-sm">Quantidade</label>
-          <input type="number" min={1} className="border rounded px-3 py-2" value={qty} onChange={(e)=>setQty(parseInt(e.target.value||"1",10))} />
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-xl w-full max-w-md p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">Receber amostras</h2>
+          <button onClick={onClose} className="px-3 py-1 border rounded-lg">Fechar</button>
         </div>
-        <div className="grid gap-2">
-          <label className="text-sm">Motivo</label>
-          <select className="border rounded px-3 py-2" value={reason_id} onChange={(e)=>setReasonId(parseInt(e.target.value,10))}>
-            {reasons.map(r=> <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-        </div>
-        <div className="grid gap-2">
-          <label className="text-sm">Cliente/Origem</label>
-          <input className="border rounded px-3 py-2" value={customer} onChange={(e)=>setCustomer(e.target.value)} />
-        </div>
-        <div className="grid gap-2">
-        <label className="text-sm">Observação (opcional)</label>
-        <textarea
-          className="border rounded px-3 py-2"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
-      </div>
-        {needsAddress && (
-          <div className="grid gap-2">
-            <label className="text-sm">Endereço (ex.: B-01.3)</label>
-            <input className="border rounded px-3 py-2" value={locationLabel} onChange={(e)=>setLocationLabel(e.target.value.toUpperCase())} list="in-locs" onInput={(e)=>setLocQuery((e.target as HTMLInputElement).value)} />
-            <datalist id="in-locs">{locOpts.map(o=> <option key={o.id} value={o.location_label}/>)}</datalist>
+
+        <div className="text-sm mb-3">
+          <div className="font-medium">{product.part_number}</div>
+          <div className="text-gray-600">{product.description ?? "—"}</div>
+          <div className="text-gray-500 text-xs mt-1">
+            Saldo atual: <b>{product.qty}</b> · Endereço atual: <b>{currentLabel}</b>
           </div>
-        )}
-        <div className="flex justify-end gap-2 pt-2">
-          <button className="px-3 py-2" onClick={onClose}>Cancelar</button>
-          <button className="bg-black text-white rounded px-4 py-2" onClick={submit}>Confirmar</button>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm block mb-1">Quantidade</label>
+            <input
+              type="number"
+              min={1}
+              value={qty}
+              onChange={(e) => setQty(Math.max(1, Number(e.target.value || 1)))}
+              className="w-full border rounded-lg px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm block mb-1">Motivo</label>
+            <select
+              value={reasonId}
+              onChange={(e) => setReasonId(e.target.value ? Number(e.target.value) : "")}
+              className="w-full border rounded-lg px-3 py-2"
+            >
+              <option value="">Selecione…</option>
+              {reasons.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {needsLocation && (
+            <div>
+              <label className="text-sm block mb-1">Endereço (novo)</label>
+              <select
+                value={toLocationId}
+                onChange={(e) => setToLocationId(e.target.value ? Number(e.target.value) : "")}
+                className="w-full border rounded-lg px-3 py-2"
+              >
+                <option value="">Selecione…</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.id}>{l.label}</option>
+                ))}
+              </select>
+              <div className="text-xs text-gray-500 mt-1">
+                Como o saldo atual é 0, selecione o endereço para receber.
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="text-sm block mb-1">Cliente (opcional)</label>
+            <input
+              value={customer}
+              onChange={(e) => setCustomer(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2"
+              placeholder="Nome do cliente"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm block mb-1">Observação (opcional)</label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2"
+              rows={3}
+              placeholder="Observações adicionais"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-2 border rounded-lg">Cancelar</button>
+          <button
+            onClick={submit}
+            disabled={!canSubmit}
+            className="px-3 py-2 rounded-lg bg-blue-600 text-white disabled:opacity-50"
+          >
+            Confirmar entrada
+          </button>
         </div>
       </div>
     </div>
