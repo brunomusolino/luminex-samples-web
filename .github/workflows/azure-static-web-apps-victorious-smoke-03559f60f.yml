@@ -44,6 +44,10 @@ jobs:
           VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA }}
           VITE_AUTHORITY: ${{ secrets.VITE_AUTHORITY }}
           VITE_API_SCOPE: ${{ secrets.VITE_API_SCOPE }}
+          VITE_CLIENT_ID_API: ${{ secrets.VITE_CLIENT_ID_API }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          VITE_TENANT_ID: ${{ secrets.VITE_TENANT_ID }}
+          VITE_API_HOST: ${{ secrets.VITE_API_HOST }}
 
       - name: Sanity check bundle
         run: |
@@ -70,6 +74,10 @@ jobs:
           VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA }}
           VITE_AUTHORITY: ${{ secrets.VITE_AUTHORITY }}
           VITE_API_SCOPE: ${{ secrets.VITE_API_SCOPE }}
+          VITE_CLIENT_ID_API: ${{ secrets.VITE_CLIENT_ID_API }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          VITE_TENANT_ID: ${{ secrets.VITE_TENANT_ID }}
+          VITE_API_HOST: ${{ secrets.VITE_API_HOST }}
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
