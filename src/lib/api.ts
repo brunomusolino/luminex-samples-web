@@ -350,42 +350,65 @@ export async function fetchStock(params: StockQuery): Promise<StockResponse> {
 }
 
 export async function fetchHistory(product_id: number): Promise<HistoryRow[]> {
+  // Tentamos primeiro o endpoint correto e, em seguida, alguns legados
   const raw = await getJsonWithFallback<unknown>(
     [
+      "/api/movements-history",
+      "/api/movements/history",
+      "/api/history/movements",
       `/api/stock/${product_id}/history`,
       `/api/products/${product_id}/history`,
-      `/api/history?product_id=${product_id}`,
-    ]
+      "/api/history",
+    ],
+    // Passa product_id como query quando o endpoint for agregador
+    { query: { product_id } }
   );
 
-  // Normaliza a resposta para um array de itens (sem usar `any`)
-  let arr: unknown[] = [];
-  if (Array.isArray(raw)) {
-    arr = raw;
-  } else if (typeof raw === "object" && raw !== null) {
-    const obj = raw as Record<string, unknown>;
-    const maybeItems = obj.items;
-    const maybeData = obj.data;
-    if (Array.isArray(maybeItems)) {
-      arr = maybeItems as unknown[];
-    } else if (Array.isArray(maybeData)) {
-      arr = maybeData as unknown[];
+  // Normaliza resposta: aceita array direto ou {items:[]}/{data:[]}
+  const toArray = (u: unknown): unknown[] => {
+    if (Array.isArray(u)) return u;
+    if (typeof u === "object" && u !== null) {
+      const o = u as Record<string, unknown>;
+      if (Array.isArray(o.items)) return o.items as unknown[];
+      if (Array.isArray(o.data)) return o.data as unknown[];
     }
-  }
+    return [];
+  };
 
-  const out: HistoryRow[] = [];
+  const arr = toArray(raw);
+
+  const rows: HistoryRow[] = [];
   for (const it of arr) {
     if (typeof it !== "object" || it === null) continue;
     const o = it as Record<string, unknown>;
 
-    const id  = typeof o.id === "number" ? o.id : 0;
-    const qty = typeof o.qty === "number" ? o.qty : 0;
+    const id =
+      typeof o.id === "number" ? o.id : undefined;
+    const qty =
+      typeof o.qty === "number"
+        ? o.qty
+        : typeof o.quantity === "number"
+        ? o.quantity
+        : undefined;
 
-    const dirStr = typeof o.direction === "string" ? o.direction.toUpperCase() : "OUT";
-    const direction: Direction = dirStr === "IN" ? "IN" : "OUT";
+    const dirRaw =
+      typeof o.direction === "string"
+        ? o.direction
+        : typeof o.dir === "string"
+        ? o.dir
+        : typeof o.movement === "string"
+        ? o.movement
+        : "OUT";
+    const direction: Direction = dirRaw.toUpperCase() === "IN" ? "IN" : "OUT";
 
     const occurred_at =
-      typeof o.occurred_at === "string" ? o.occurred_at : "";
+      typeof o.occurred_at === "string"
+        ? o.occurred_at
+        : typeof o.created_at === "string"
+        ? o.created_at
+        : typeof o.timestamp === "string"
+        ? o.timestamp
+        : "";
 
     const reason =
       typeof o.reason === "string"
@@ -407,19 +430,19 @@ export async function fetchHistory(product_id: number): Promise<HistoryRow[]> {
 
     const note = typeof o.note === "string" ? o.note : null;
 
-    const loc =
+    const location_label =
       typeof o.location_label === "string"
         ? o.location_label
         : typeof o.label === "string"
         ? o.label
         : null;
 
-    if (id > 0 && occurred_at) {
-      out.push({ id, occurred_at, direction, qty, reason, customer, user, note, location_label: loc });
+    if (typeof id === "number" && occurred_at && typeof qty === "number") {
+      rows.push({ id, occurred_at, direction, qty, reason, customer, user, note, location_label });
     }
   }
 
-  return out;
+  return rows;
 }
 
 
