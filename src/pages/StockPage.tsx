@@ -88,6 +88,9 @@ export default function StockPage() {
     return ["stock", queryParams.q ?? "", mans, fams, loc] as const;
   }, [queryParams]);
 
+  // String derivada da chave para usar em deps do effect
+  const stockKeyStr = (stockKey as readonly unknown[]).join("|");
+
   // --------------------
   // Catálogos
   // --------------------
@@ -131,8 +134,9 @@ export default function StockPage() {
       const offset = pageParam ?? 0;
       return fetchStock({ ...queryParams, offset });
     },
+    // ⚠️ Para somente quando a página vier vazia
     getNextPageParam: (last) =>
-      last.items.length < PAGE_SIZE ? undefined : last.nextOffset,
+      last.items.length === 0 ? undefined : last.nextOffset,
     refetchOnWindowFocus: false,
   });
 
@@ -159,6 +163,7 @@ export default function StockPage() {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = stockQuery;
 
+  // IntersectionObserver (mantido)
   useEffect(() => {
     const root = listRef.current;
     const sent = sentinelRef.current;
@@ -171,12 +176,49 @@ export default function StockPage() {
           fetchNextPage();
         }
       },
-      { root, rootMargin: "200px 0px" }
+      { root, rootMargin: "300px 0px", threshold: 0.01 }
     );
 
     io.observe(sent);
     return () => io.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, stockKeyStr, productsFiltered.length]);
+
+  // Fallback: evento de scroll no container (mantido)
+  useEffect(() => {
+    const root = listRef.current;
+    if (!root) return;
+
+    const onScroll = () => {
+      if (!hasNextPage || isFetchingNextPage) return;
+      const nearBottom =
+        root.scrollTop + root.clientHeight >= root.scrollHeight - 200;
+      if (nearBottom) fetchNextPage();
+    };
+
+    root.addEventListener("scroll", onScroll, { passive: true });
+    return () => root.removeEventListener("scroll", onScroll);
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Fallback adicional: se ainda não há rolagem, busca mais (com ResizeObserver)
+  useEffect(() => {
+    const root = listRef.current;
+    if (!root) return;
+
+    const tryFetch = () => {
+      if (!hasNextPage || isFetchingNextPage) return;
+      const noScroll = root.scrollHeight <= root.clientHeight + 8;
+      if (noScroll) fetchNextPage();
+    };
+
+    // testa já
+    tryFetch();
+
+    // observa mudanças de tamanho da lista (entrada de novos itens etc.)
+    const ro = new ResizeObserver(() => tryFetch());
+    ro.observe(root);
+
+    return () => ro.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, productsFiltered.length, stockKeyStr]);
 
   // --------------------
   // Modais
