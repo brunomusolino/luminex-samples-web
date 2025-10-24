@@ -1,5 +1,12 @@
 name: ci
 
+# add at top or per job
+env:
+  VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA }}
+  VITE_AUTHORITY:     ${{ secrets.VITE_AUTHORITY }}
+  VITE_API_SCOPE:     ${{ secrets.VITE_API_SCOPE }}
+  VITE_API_BASE_URL:  ${{ secrets.VITE_API_BASE_URL }}
+
 on:
   push:
     branches: [ main ]
@@ -27,6 +34,17 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck --if-present
+
+      # before `npm run build`
+      - name: Create .env.production
+        run: |
+          cat > .env.production << 'EOF'
+          VITE_CLIENT_ID_SPA=${VITE_CLIENT_ID_SPA}
+          VITE_AUTHORITY=${VITE_AUTHORITY}
+          VITE_API_SCOPE=${VITE_API_SCOPE}
+          VITE_API_BASE_URL=${VITE_API_BASE_URL}
+          EOF
+
 
       - name: Build
         run: npm run build
