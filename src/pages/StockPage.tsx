@@ -7,12 +7,14 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query";
 
+import ActionsBar from "../components/ActionsBar";
 import FiltersBar, { type Filters } from "../components/FiltersBar";
 import ProductCard from "../components/ProductCard";
 import InModal from "../components/modals/InModal";
 import OutModal from "../components/modals/OutModal";
 import TransferModal from "../components/modals/TransferModal";
 import HistoryModal from "../components/modals/HistoryModal";
+import NewProductInModal from "../components/modals/NewProductInModal";
 
 import {
   fetchStock,
@@ -88,7 +90,7 @@ export default function StockPage() {
     return ["stock", queryParams.q ?? "", mans, fams, loc] as const;
   }, [queryParams]);
 
-  // String derivada da chave para usar em deps do effect
+  // String derivada da chave p/ deps estáveis
   const stockKeyStr = (stockKey as readonly unknown[]).join("|");
 
   // --------------------
@@ -134,10 +136,11 @@ export default function StockPage() {
       const offset = pageParam ?? 0;
       return fetchStock({ ...queryParams, offset });
     },
-    // ⚠️ Para somente quando a página vier vazia
+    // 👇 Ajuste crítico: não assuma PAGE_SIZE!
     getNextPageParam: (last) =>
       last.items.length === 0 ? undefined : last.nextOffset,
     refetchOnWindowFocus: false,
+    refetchOnMount: "always",
   });
 
   // Flatten dos itens
@@ -157,66 +160,88 @@ export default function StockPage() {
     !(stockQuery.data as InfiniteData<StockResponse> | undefined);
 
   // --------------------
-  // Lista com scroll próprio + sentinel
+  // Lista com scroll próprio + fallbacks
   // --------------------
   const listRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const fetchingRef = useRef(false);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = stockQuery;
 
-  // IntersectionObserver (mantido)
+  // IntersectionObserver — quando o sentinel entra, busca próxima página
   useEffect(() => {
     const root = listRef.current;
     const sent = sentinelRef.current;
     if (!root || !sent) return;
 
     const io = new IntersectionObserver(
-      (entries) => {
+      async (entries) => {
         const e = entries[0];
-        if (e?.isIntersecting && hasNextPage && !isFetchingNextPage) {
-          fetchNextPage();
+        if (
+          e?.isIntersecting &&
+          hasNextPage &&
+          !isFetchingNextPage &&
+          !fetchingRef.current
+        ) {
+          fetchingRef.current = true;
+          try {
+            await fetchNextPage();
+          } finally {
+            fetchingRef.current = false;
+          }
         }
       },
-      { root, rootMargin: "300px 0px", threshold: 0.01 }
+      { root, rootMargin: "300px 0px", threshold: 0 }
     );
 
     io.observe(sent);
     return () => io.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage, stockKeyStr, productsFiltered.length]);
 
-  // Fallback: evento de scroll no container (mantido)
+  // Fallback: listener de scroll no container
   useEffect(() => {
     const root = listRef.current;
     if (!root) return;
 
-    const onScroll = () => {
-      if (!hasNextPage || isFetchingNextPage) return;
+    const onScroll = async () => {
+      if (!hasNextPage || isFetchingNextPage || fetchingRef.current) return;
       const nearBottom =
         root.scrollTop + root.clientHeight >= root.scrollHeight - 200;
-      if (nearBottom) fetchNextPage();
+      if (nearBottom) {
+        fetchingRef.current = true;
+        try {
+          await fetchNextPage();
+        } finally {
+          fetchingRef.current = false;
+        }
+      }
     };
 
     root.addEventListener("scroll", onScroll, { passive: true });
     return () => root.removeEventListener("scroll", onScroll);
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, stockKeyStr]);
 
-  // Fallback adicional: se ainda não há rolagem, busca mais (com ResizeObserver)
+  // Auto-carregar quando a lista ainda não tem rolagem (e em redimensionamentos)
   useEffect(() => {
     const root = listRef.current;
     if (!root) return;
 
-    const tryFetch = () => {
-      if (!hasNextPage || isFetchingNextPage) return;
+    const tryFetch = async () => {
+      if (!hasNextPage || isFetchingNextPage || fetchingRef.current) return;
       const noScroll = root.scrollHeight <= root.clientHeight + 8;
-      if (noScroll) fetchNextPage();
+      if (noScroll) {
+        fetchingRef.current = true;
+        try {
+          await fetchNextPage();
+        } finally {
+          fetchingRef.current = false;
+        }
+      }
     };
 
-    // testa já
-    tryFetch();
+    void tryFetch();
 
-    // observa mudanças de tamanho da lista (entrada de novos itens etc.)
-    const ro = new ResizeObserver(() => tryFetch());
+    const ro = new ResizeObserver(() => void tryFetch());
     ro.observe(root);
-
     return () => ro.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage, productsFiltered.length, stockKeyStr]);
 
@@ -225,12 +250,11 @@ export default function StockPage() {
   // --------------------
   const [inProduct, setInProduct] = useState<StockItem | null>(null);
   const [outProduct, setOutProduct] = useState<StockItem | null>(null);
-  const [transferProduct, setTransferProduct] = useState<StockItem | null>(
-    null
-  );
-  const [historyProductId, setHistoryProductId] = useState<number | null>(
-    null
-  );
+  const [transferProduct, setTransferProduct] = useState<StockItem | null>(null);
+  const [historyProductId, setHistoryProductId] = useState<number | null>(null);
+
+  // Novo modal: cadastro + entrada
+  const [newProdOpen, setNewProdOpen] = useState(false);
 
   return (
     <>
@@ -241,9 +265,7 @@ export default function StockPage() {
             <div className="text-2xl font-semibold text-gray-900 leading-tight">
               Luminex App
             </div>
-            <div className="text-sm text-gray-500 -mt-0.5">
-              Samples inventory
-            </div>
+            <div className="text-sm text-gray-500 -mt-0.5">Samples inventory</div>
           </div>
           <div className="text-xs text-gray-400 select-none" />
         </div>
@@ -251,10 +273,15 @@ export default function StockPage() {
 
       {/* Wrapper com padding para top/footer fixos */}
       <div className="mx-auto max-w-5xl px-4 pt-16 pb-14">
-        {/* Área que ocupa o viewport restante (top 64px, footer 56px) */}
         <div className="flex h-[calc(100vh-64px-56px)] flex-col gap-3">
-          {/* Filtros fixos dentro do container (não rolam) */}
-          <div className="mt-3">
+          {/* Barra de ações */}
+          {/* Barra de ações (afastada do topbar) */}
+          <div className="mt-3 md:mt-4">
+            <ActionsBar onNewProductIn={() => setNewProdOpen(true)} />
+          </div>
+
+          {/* Filtros */}
+          <div>
             <FiltersBar
               value={filters}
               onChange={setFilters}
@@ -264,9 +291,10 @@ export default function StockPage() {
             />
           </div>
 
-          {/* Lista de produtos com scroll próprio */}
+          {/* Lista com scroll */}
           <div
             ref={listRef}
+            key={stockKeyStr}
             className="flex-1 overflow-y-auto pr-1"
             aria-label="Lista de produtos"
           >
@@ -284,9 +312,7 @@ export default function StockPage() {
               ))}
 
               {isInitialLoading && (
-                <div className="text-sm text-gray-500">
-                  Carregando produtos...
-                </div>
+                <div className="text-sm text-gray-500">Carregando produtos...</div>
               )}
 
               {stockQuery.isError && (
@@ -296,21 +322,20 @@ export default function StockPage() {
                 </div>
               )}
 
-              {!isInitialLoading &&
-                productsFiltered.length === 0 &&
-                !stockQuery.isError && (
-                  <div className="text-center text-gray-500">
-                    Nenhum item encontrado.
-                  </div>
-                )}
+              {!isInitialLoading && productsFiltered.length === 0 && !stockQuery.isError && (
+                <div className="text-center text-gray-500">Nenhum item encontrado.</div>
+              )}
 
-              {/* Sentinel para infinite scroll dentro da lista */}
+              {/* Sentinel + botão de fallback manual */}
               {hasNextPage && (
-                <div
-                  ref={sentinelRef}
-                  className="py-3 text-center text-sm text-gray-500"
-                >
-                  {isFetchingNextPage ? "Carregando mais..." : "Carregar mais…"}
+                <div ref={sentinelRef} className="py-3 text-center text-sm text-gray-500">
+                  <button
+                    onClick={() => fetchNextPage()}
+                    className="rounded-lg border px-3 py-1 hover:bg-gray-50 disabled:opacity-50"
+                    disabled={isFetchingNextPage}
+                  >
+                    {isFetchingNextPage ? "Carregando mais..." : "Carregar mais…"}
+                  </button>
                 </div>
               )}
             </div>
@@ -338,7 +363,7 @@ export default function StockPage() {
         </div>
       </div>
 
-      {/* Modais */}
+      {/* Modais existentes */}
       {inProduct && (
         <InModal
           open
@@ -387,6 +412,19 @@ export default function StockPage() {
         <HistoryModal
           productId={historyProductId}
           onClose={() => setHistoryProductId(null)}
+        />
+      )}
+
+      {/* Modal de cadastro + entrada */}
+      {newProdOpen && (
+        <NewProductInModal
+          open={newProdOpen}
+          onClose={() => setNewProdOpen(false)}
+          onDone={(newId) => {
+            markChanged(newId);
+            setNewProdOpen(false);
+            stockQuery.refetch();
+          }}
         />
       )}
     </>

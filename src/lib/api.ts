@@ -80,6 +80,27 @@ export interface TransferPayload {
   occurred_at?: string;
 }
 
+export interface ProductCreatePayload {
+  part_number: string;           // ou "code" no backend
+  description?: string;
+  manufacturer_id: number;       // OBRIGATÓRIO (NOT NULL no banco)
+  family_id?: number | null;     // opcional
+}
+
+export interface ProductCreateResponse {
+  product_id: number;
+}
+
+export interface ProductBasic {
+  product_id: number;
+  part_number: string;
+  description: string;
+  manufacturer?: string;
+  is_active?: boolean;
+  family_id?: number;
+}
+
+
 // =====================
 // Helpers (runtime guards)
 // =====================
@@ -456,6 +477,47 @@ export async function listLocations(): Promise<LocationOption[]> {
   );
 }
 
+
+// Busca produto por código (match exato, case-insensitive)
+export async function findProductByCode(part_number: string): Promise<ProductBasic | null> {
+  const q = (part_number ?? "").trim();
+  if (!q) return null;
+
+  const data = await http<unknown>("/api/products", {
+    query: { q, limit: 50, offset: 0 },
+  });
+
+  let arr: unknown[] = [];
+  if (Array.isArray(data)) {
+    arr = data as unknown[];
+  } else if (isObject(data) && Array.isArray((data as Record<string, unknown>).items)) {
+    arr = (data as Record<string, unknown>).items as unknown[];
+  }
+
+  for (const u of arr) {
+    if (!isObject(u)) continue;
+    const pn = readStr(u, ["part_number"]) ?? "";
+    if (pn.toLowerCase() !== q.toLowerCase()) continue;
+
+    const id = readNum(u, ["product_id", "id"]) ?? 0;
+    const description = readStr(u, ["description"]) ?? "";
+    const manufacturer = readStr(u, ["manufacturer"]);
+    const active =
+      typeof (u as Record<string, unknown>).is_active === "boolean"
+        ? ((u as Record<string, unknown>).is_active as boolean)
+        : undefined;
+
+    return {
+      product_id: id,
+      part_number: pn,
+      description,
+      manufacturer,
+      is_active: active,
+    };
+  }
+  return null;
+}
+
 // =====================
 // POSTs
 // =====================
@@ -521,4 +583,86 @@ export async function createLocation(label: string): Promise<LocationOption> {
     if (id !== undefined && lbl) return { id, label: lbl };
   }
   throw new Error("Invalid response creating location");
+}
+
+// Função de criação (adicione junto aos POSTs existentes)
+export async function createProduct(
+  p: ProductCreatePayload
+): Promise<ProductCreateResponse> {
+  const body = {
+    // backend aceita 'part_number' ou 'code'; aqui enviamos 'part_number'
+    part_number: p.part_number,
+    description: p.description ?? null,
+    manufacturer_id: p.manufacturer_id,
+    family_id: typeof p.family_id === "number" ? p.family_id : null,
+  };
+
+  const data = await http<unknown>("/api/products", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  if (typeof data === "object" && data !== null) {
+    const obj = data as Record<string, unknown>;
+    const id = obj.product_id;
+    if (typeof id === "number" && id > 0) {
+      return { product_id: id };
+    }
+  }
+  throw new Error("Invalid response creating product");
+}
+
+// Tipos auxiliares
+export interface ProductBasic {
+  product_id: number;
+  part_number: string;
+  description: string;
+  manufacturer?: string;
+  is_active?: boolean;
+  family_id?: number;
+}
+
+// Cria nova família (tenta /api/families e fallback /api/product-families)
+export async function createFamily(name: string): Promise<Family> {
+  const data = await http<unknown>("/api/families", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  if (typeof data === "object" && data !== null) {
+    const o = data as Record<string, unknown>;
+    const id = typeof o.id === "number" ? o.id : undefined;
+    const nm = typeof o.name === "string" ? o.name : undefined;
+    if (id !== undefined && nm) return { id, name: nm };
+  }
+  throw new Error("Invalid response creating family");
+}
+
+// Atualiza produto (best-effort; ignora se endpoint não existir)
+export async function updateProduct(
+  product_id: number,
+  patch: {
+    part_number?: string;
+    description?: string;
+    manufacturer_id?: number;
+    family_id?: number;
+    is_active?: boolean;
+  }
+): Promise<void> {
+  try {
+    await http<unknown>(`/api/products/${product_id}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    });
+    return;
+  } catch (e) {
+    if (!(e instanceof Error && e.message.includes("404"))) throw e;
+  }
+  try {
+    await http<unknown>(`/api/products/${product_id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  } catch (e) {
+    if (!(e instanceof Error && e.message.includes("404"))) throw e;
+  }
 }
