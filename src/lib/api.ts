@@ -590,7 +590,6 @@ export async function createProduct(
   p: ProductCreatePayload
 ): Promise<ProductCreateResponse> {
   const body = {
-    // backend aceita 'part_number' ou 'code'; aqui enviamos 'part_number'
     part_number: p.part_number,
     description: p.description ?? null,
     manufacturer_id: p.manufacturer_id,
@@ -602,13 +601,31 @@ export async function createProduct(
     body: JSON.stringify(body),
   });
 
-  if (typeof data === "object" && data !== null) {
-    const obj = data as Record<string, unknown>;
-    const id = obj.product_id;
-    if (typeof id === "number" && id > 0) {
-      return { product_id: id };
+  // Try to extract an id from common response shapes
+  if (typeof data === "number" && Number.isFinite(data)) {
+    return { product_id: data };
+  }
+
+  if (isObject(data)) {
+    const idDirect = readNum(data, ["product_id", "id"]);
+    if (typeof idDirect === "number") {
+      return { product_id: idDirect };
+    }
+    const items = (data as Record<string, unknown>).items;
+    if (Array.isArray(items) && items.length && isObject(items[0])) {
+      const idFromItems = readNum(items[0] as Record<string, unknown>, ["product_id", "id"]);
+      if (typeof idFromItems === "number") {
+        return { product_id: idFromItems };
+      }
     }
   }
+
+  // Fallback: API may return 201/204 without body. Confirm by fetching the product back by part number.
+  const found = await findProductByCode(p.part_number);
+  if (found && typeof found.product_id === "number") {
+    return { product_id: found.product_id };
+  }
+
   throw new Error("Invalid response creating product");
 }
 
