@@ -8,6 +8,7 @@ import {
   createFamily,   // deve existir em lib/api
   createProduct,  // deve existir em lib/api
   postIn,
+  fetchMovementReasons,
   type Manufacturer,
   type Family,
   type LocationOption,
@@ -46,6 +47,30 @@ function extractItemsArray(u: unknown): UnknownRecord[] {
     return (u as UnknownRecord).items as UnknownRecord[];
   }
   return [];
+}
+
+function pickDefaultReasonId(list: { id: number; name: string }[]): number | null {
+  if (!Array.isArray(list) || list.length === 0) return null;
+
+  const preferred = [
+    "Ajuste inventário",
+    "Ajuste",
+    "Inventário",
+    "Entrada",
+  ];
+
+  // tenta match exato por nome
+  for (const target of preferred) {
+    const found = list.find(r => r.name?.toLowerCase() === target.toLowerCase());
+    if (found) return found.id;
+  }
+
+  // tenta match por inclusão (mais tolerante)
+  const byIncludes = list.find(r => /ajuste|invent/i.test(r.name || ""));
+  if (byIncludes) return byIncludes.id;
+
+  // fallback: primeiro da lista
+  return list[0].id ?? null;
 }
 
 export default function NewProductInModal({ open, onClose, onDone }: Props) {
@@ -226,7 +251,15 @@ export default function NewProductInModal({ open, onClose, onDone }: Props) {
         return;
       }
 
-      // 2) dá entrada
+      // 2) resolve reason_id dinamicamente
+      const reasons = await fetchMovementReasons();
+      const reasonId = pickDefaultReasonId(reasons);
+      if (!reasonId) {
+        alert("Nenhum motivo de movimentação disponível. Cadastre um motivo (ex.: 'Ajuste de inventário').");
+        return;
+      }
+
+      // 3) dá entrada
       const allLocs = locsQ.data ?? [];
       const found = allLocs.find((l) => l.label === toLabel);
       if (!found) {
@@ -236,12 +269,13 @@ export default function NewProductInModal({ open, onClose, onDone }: Props) {
 
       await postIn({
         product_id: pid,
-        location_id: found.id,
-        qty: qtyNum!,
-        reason_id: 1, // motivo padrão; ajuste se desejar
+        location_id: found.id,      // ou resolva pelo label como já faz hoje
+        qty: qtyNum,
+        reason_id: reasonId,
         customer: "",
         note: note || undefined,
       });
+
 
       onDone(pid);
     } catch (e) {
