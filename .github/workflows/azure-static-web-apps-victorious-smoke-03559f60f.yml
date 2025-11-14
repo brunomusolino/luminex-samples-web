@@ -7,17 +7,14 @@ on:
     types: [ opened, synchronize, reopened, closed ]
     branches: [ main ]
 
-permissions:
-  contents: read
-
 jobs:
-  # =========================
-  # 1) Deploy PRODUÇÃO (main)
-  # =========================
-  build_deploy_main:
+  # =======================
+  # Production (main)
+  # =======================
+  build_deploy_prod:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    name: Build & Deploy (PROD - main)
+    name: Build & Deploy (production)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,7 +30,7 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Build app (PROD env)
+      - name: Build app (prod)
         run: npm run build
         env:
           VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA }}
@@ -44,30 +41,25 @@ jobs:
           VITE_TENANT_ID: ${{ secrets.VITE_TENANT_ID }}
           VITE_API_HOST: ${{ secrets.VITE_API_HOST }}
 
-      - name: Sanity check bundle
-        run: |
-          ls -la dist
-          test -d dist && echo "dist ok"
-
-      - name: Deploy to Azure Static Web Apps (PROD)
-        id: builddeploy
+      - name: Deploy to Azure Static Web Apps (production)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_VICTORIOUS_SMOKE_03559F60F }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
-          app_location: "dist"   # apontando para build pronto
+          app_location: "dist"     # já pré-buildado
           api_location: ""
           output_location: ""
           skip_app_build: true
+          production_branch: "main"
 
-  # =========================
-  # 2) Deploy STAGING (branch)
-  # =========================
+  # =======================
+  # Staging (branch staging)
+  # =======================
   build_deploy_staging:
     if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
     runs-on: ubuntu-latest
-    name: Build & Deploy (STAGING - staging)
+    name: Build & Deploy (staging preview)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,7 +75,7 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Build app (STG env)
+      - name: Build app (staging)
         run: npm run build
         env:
           VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA_STG }}
@@ -94,13 +86,7 @@ jobs:
           VITE_TENANT_ID: ${{ secrets.VITE_TENANT_ID_STG }}
           VITE_API_HOST: ${{ secrets.VITE_API_HOST_STG }}
 
-      - name: Sanity check bundle
-        run: |
-          ls -la dist
-          test -d dist && echo "dist ok"
-
-      - name: Deploy to Azure Static Web Apps (STAGING branch env)
-        id: builddeploy
+      - name: Deploy to Azure Static Web Apps (staging named preview)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_VICTORIOUS_SMOKE_03559F60F }}
@@ -110,19 +96,22 @@ jobs:
           api_location: ""
           output_location: ""
           skip_app_build: true
+          production_branch: "main"
+          deployment_environment: "staging"   # <<< preview nomeado
 
-  # ===========================================
-  # 3) Deploy PR Preview (target main) — STG env
-  # ===========================================
+  # =======================
+  # Preview para PRs -> main
+  # =======================
   build_deploy_pr:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-latest
-    name: Build & Deploy (PR Preview)
+    name: Build & Deploy (PR preview)
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: false
           lfs: false
+          fetch-depth: 0
 
       - name: Use Node 20.19.0
         uses: actions/setup-node@v4
@@ -133,7 +122,8 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Build app (PR env = STG vars)
+      # Dica: use os segredos de STG para não vazar credenciais de prod em pre-releases
+      - name: Build app (PR preview)
         run: npm run build
         env:
           VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA_STG }}
@@ -144,13 +134,7 @@ jobs:
           VITE_TENANT_ID: ${{ secrets.VITE_TENANT_ID_STG }}
           VITE_API_HOST: ${{ secrets.VITE_API_HOST_STG }}
 
-      - name: Sanity check bundle
-        run: |
-          ls -la dist
-          test -d dist && echo "dist ok"
-
-      - name: Deploy PR Preview to Azure Static Web Apps
-        id: builddeploy
+      - name: Deploy to Azure Static Web Apps (PR preview)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_VICTORIOUS_SMOKE_03559F60F }}
@@ -160,17 +144,14 @@ jobs:
           api_location: ""
           output_location: ""
           skip_app_build: true
+          production_branch: "main"
 
-  # ===========================================
-  # 4) Fechar ambiente de PR ao fechar o PR
-  # ===========================================
-  close_pull_request_job:
+  # Fecha o ambiente de preview quando o PR é fechado/mesclado
+  close_pull_request_preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
-    name: Close PR Preview
     steps:
-      - name: Close Pull Request env in SWA
-        id: closepullrequest
+      - name: Close PR preview environment
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_VICTORIOUS_SMOKE_03559F60F }}
