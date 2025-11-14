@@ -14,3 +14,9 @@ createRoot(root).render(
     <App />
   </StrictMode>
 );
+
+console.info("cfg", {
+  base: import.meta.env.VITE_API_BASE_URL,
+  scope: import.meta.env.VITE_API_SCOPE,
+  auth: import.meta.env.VITE_AUTHORITY,
+});
