@@ -41,7 +41,7 @@ function wrapWithAsterisks(s: string): string {
   return out;
 }
 
-type StockKey = readonly ["stock", string, string, string, string?];
+type StockKey = readonly ["stock", string, string, string, string, "0" | "1"];
 
 export default function StockPage() {
   // --------------------
@@ -52,6 +52,7 @@ export default function StockPage() {
     manufacturerIds: [],
     familyIds: [],
     locationLabel: "",
+    inStockOnly: true,
   });
 
   // Apenas alterados nesta sessão
@@ -76,6 +77,7 @@ export default function StockPage() {
         : undefined,
       family_id: filters.familyIds.length ? filters.familyIds : undefined,
       location_label: filters.locationLabel || undefined,
+      in_stock_only: filters.inStockOnly,
       sort: "code",
       order: "asc",
       limit: PAGE_SIZE,
@@ -86,8 +88,9 @@ export default function StockPage() {
   const stockKey = useMemo<StockKey>(() => {
     const mans = (queryParams.manufacturer_id ?? []).join(",");
     const fams = (queryParams.family_id ?? []).join(",");
-    const loc = queryParams.location_label;
-    return ["stock", queryParams.q ?? "", mans, fams, loc] as const;
+    const loc = queryParams.location_label ?? "";
+    const inStockOnly: "0" | "1" = queryParams.in_stock_only ? "1" : "0";
+    return ["stock", queryParams.q ?? "", mans, fams, loc, inStockOnly] as const;
   }, [queryParams]);
 
   // String derivada da chave p/ deps estáveis
