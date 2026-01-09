@@ -324,7 +324,10 @@ export async function fetchStock(params: StockQuery): Promise<StockResponse> {
     manufacturer_id: params.manufacturer_id && params.manufacturer_id.length ? params.manufacturer_id.join(",") : undefined,
     family_id: params.family_id && params.family_id.length ? params.family_id.join(",") : undefined,
     location_label: params.location_label,
-    in_stock_only: params.in_stock_only ? 1 : undefined,
+    in_stock_only:
+      typeof params.in_stock_only === "boolean"
+        ? (params.in_stock_only ? 1 : 0)
+        : undefined,
   } as const;
 
   const raw = await getJsonWithFallback<unknown>(
