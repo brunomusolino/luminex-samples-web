@@ -2,23 +2,26 @@ name: Azure Static Web Apps CI/CD
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, staging ]
   pull_request:
     types: [ opened, synchronize, reopened, closed ]
     branches: [ main ]
 
 jobs:
-  build_and_deploy_job:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+  # =======================
+  # Production (main)
+  # =======================
+  build_deploy_prod:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    name: Build and Deploy Job
+    environment: production
+    name: Build & Deploy (production)
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: false
           lfs: false
 
-      # Use Node 20.19.0 to satisfy vite/@vitejs/plugin-react engine
       - name: Use Node 20.19.0
         uses: actions/setup-node@v4
         with:
@@ -28,18 +31,8 @@ jobs:
       - name: Install deps
         run: npm ci
 
-      - name: Build app
+      - name: Build app (prod)
         run: npm run build
-        # Vite outputs to ./dist by default
-
-      - name: Print Vite env presence (masked)
-        run: |
-          node -e "console.log('CLIENT_ID length=', (process.env.VITE_CLIENT_ID_SPA||'').length)"
-          node -e "console.log('AUTHORITY ok=', !!process.env.VITE_AUTHORITY)"
-          node -e "console.log('SCOPE ok=', !!process.env.VITE_API_SCOPE)"
-
-      - run: npm ci
-      - run: npm run build
         env:
           VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA }}
           VITE_AUTHORITY: ${{ secrets.VITE_AUTHORITY }}
@@ -49,48 +42,122 @@ jobs:
           VITE_TENANT_ID: ${{ secrets.VITE_TENANT_ID }}
           VITE_API_HOST: ${{ secrets.VITE_API_HOST }}
 
-      - name: Sanity check bundle
-        run: |
-          grep -R "api://" dist || true
-          grep -R "${{ secrets.VITE_CLIENT_ID_SPA }}" dist || true  # (vai sair mascarado, mas serve p/ ver se há algo)
-
-
-      # Upload prebuilt artifact to SWA (skip Oryx build)
-      - name: Deploy to Azure Static Web Apps
-        id: builddeploy
+      - name: Deploy to Azure Static Web Apps (production)
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_VICTORIOUS_SMOKE_03559F60F }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
-          # When skip_app_build is true:
-          # - app_location MUST point to the built folder
-          # - output_location MUST be empty
+          app_location: "dist"     # já pré-buildado
+          api_location: ""
+          output_location: ""
+          skip_app_build: true
+          production_branch: "main"
+
+  # =======================
+  # Staging (branch staging)
+  # =======================
+  build_deploy_staging:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    name: Build & Deploy (staging preview)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          lfs: false
+
+      - name: Use Node 20.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build app (staging)
+        run: npm run build
+        env:
+          VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA_STG }}
+          VITE_AUTHORITY: ${{ secrets.VITE_AUTHORITY_STG }}
+          VITE_API_SCOPE: ${{ secrets.VITE_API_SCOPE_STG }}
+          VITE_CLIENT_ID_API: ${{ secrets.VITE_CLIENT_ID_API_STG }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL_STG }}
+          VITE_TENANT_ID: ${{ secrets.VITE_TENANT_ID_STG }}
+          VITE_API_HOST: ${{ secrets.VITE_API_HOST_STG }}
+
+      - name: Deploy to Azure Static Web Apps (staging named preview)
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_VICTORIOUS_SMOKE_03559F60F }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
           app_location: "dist"
           api_location: ""
           output_location: ""
           skip_app_build: true
-        env:
-          VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA }}
-          VITE_AUTHORITY: ${{ secrets.VITE_AUTHORITY }}
-          VITE_API_SCOPE: ${{ secrets.VITE_API_SCOPE }}
-          VITE_CLIENT_ID_API: ${{ secrets.VITE_CLIENT_ID_API }}
-          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
-          VITE_TENANT_ID: ${{ secrets.VITE_TENANT_ID }}
-          VITE_API_HOST: ${{ secrets.VITE_API_HOST }}
+          production_branch: "main"
+          deployment_environment: "staging"   # <<< preview nomeado
 
-  close_pull_request_job:
+  # =======================
+  # Preview para PRs -> main
+  # =======================
+  build_deploy_pr:
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    name: Build & Deploy (PR preview)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          lfs: false
+          fetch-depth: 0
+
+      - name: Use Node 20.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.0'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      # Dica: use os segredos de STG para não vazar credenciais de prod em pre-releases
+      - name: Build app (PR preview)
+        run: npm run build
+        env:
+          VITE_CLIENT_ID_SPA: ${{ secrets.VITE_CLIENT_ID_SPA_STG }}
+          VITE_AUTHORITY: ${{ secrets.VITE_AUTHORITY_STG }}
+          VITE_API_SCOPE: ${{ secrets.VITE_API_SCOPE_STG }}
+          VITE_CLIENT_ID_API: ${{ secrets.VITE_CLIENT_ID_API_STG }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL_STG }}
+          VITE_TENANT_ID: ${{ secrets.VITE_TENANT_ID_STG }}
+          VITE_API_HOST: ${{ secrets.VITE_API_HOST_STG }}
+
+      - name: Deploy to Azure Static Web Apps (PR preview)
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_VICTORIOUS_SMOKE_03559F60F }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "dist"
+          api_location: ""
+          output_location: ""
+          skip_app_build: true
+          production_branch: "main"
+
+  # Fecha o ambiente de preview quando o PR é fechado/mesclado
+  close_pull_request_preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
-    name: Close Pull Request Job
     steps:
-      - name: Close Pull Request
-        id: closepullrequest
+      - name: Close PR preview environment
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN_VICTORIOUS_SMOKE_03559F60F }}
           action: "close"
-          # Some validators complain if this is omitted:
           app_location: "dist"
           api_location: ""
           output_location: ""

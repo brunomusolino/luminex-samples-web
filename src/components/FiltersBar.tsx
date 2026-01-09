@@ -7,6 +7,7 @@ export type Filters = {
   manufacturerIds: number[]; // [] => Todos
   familyIds: number[];       // [] => Todas
   locationLabel?: string;    // undefined => Todos
+  inStockOnly: boolean;      // true => apenas itens com estoque > 0
 };
 
 type Props = {
@@ -41,6 +42,7 @@ export default function FiltersBar({
   const setMakers = (ids: number[]) => onChange((v) => ({ ...v, manufacturerIds: ids }));
   const setFamilies = (ids: number[]) => onChange((v) => ({ ...v, familyIds: ids }));
   const setLocationLabel = (label?: string) => onChange((v) => ({ ...v, locationLabel: label }));
+  const setInStockOnly = (inStockOnly: boolean) => onChange((v) => ({ ...v, inStockOnly }));
 
   const toggleOneMaker = (id: number) => {
     setMakers(
@@ -208,6 +210,18 @@ export default function FiltersBar({
             )}
           </div>
         )}
+      </div>
+
+      {/* Linha inferior: apenas itens em estoque */}
+      <div className="w-full border-t border-gray-100 pt-2">
+        <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
+          <input
+            type="checkbox"
+            checked={value.inStockOnly}
+            onChange={(e) => setInStockOnly(e.target.checked)}
+          />
+          Exibir apenas produtos em estoque
+        </label>
       </div>
     </div>
   );

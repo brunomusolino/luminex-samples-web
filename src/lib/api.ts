@@ -61,6 +61,7 @@ export interface StockQuery {
   order?: "asc" | "desc";
   limit?: number;
   offset?: number;
+  in_stock_only?: boolean;
 }
 
 export interface MovementPayload {
@@ -323,6 +324,10 @@ export async function fetchStock(params: StockQuery): Promise<StockResponse> {
     manufacturer_id: params.manufacturer_id && params.manufacturer_id.length ? params.manufacturer_id.join(",") : undefined,
     family_id: params.family_id && params.family_id.length ? params.family_id.join(",") : undefined,
     location_label: params.location_label,
+    in_stock_only:
+      typeof params.in_stock_only === "boolean"
+        ? (params.in_stock_only ? 1 : 0)
+        : undefined,
   } as const;
 
   const raw = await getJsonWithFallback<unknown>(
@@ -338,9 +343,14 @@ export async function fetchStock(params: StockQuery): Promise<StockResponse> {
     const description   = typeof o.description === "string" ? o.description : typeof o.desc === "string" ? o.desc : "";
     const manufacturer  = typeof o.manufacturer === "string" ? o.manufacturer : undefined;
     const qty           = typeof o.qty === "number" ? o.qty : typeof o.quantity === "number" ? o.quantity : undefined;
-    const locationLabel = typeof o.location_label === "string" ? o.location_label : typeof o.label === "string" ? o.label : undefined;
+    const locationLabel =
+      typeof o.location_label === "string"
+        ? o.location_label
+        : typeof o.label === "string"
+        ? o.label
+        : "—";
     const location_id   = typeof o.location_id === "number" ? o.location_id : undefined;
-    if (product_id === undefined || code === undefined || qty === undefined || !locationLabel) return null;
+    if (product_id === undefined || code === undefined || qty === undefined) return null;
     return { product_id, code, part_number: code, description, manufacturer, qty, location_label: locationLabel, location_id };
   };
 
